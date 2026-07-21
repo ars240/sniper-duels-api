@@ -6,6 +6,11 @@ const scrapeValues = require('./scraper');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// Root endpoint for UptimeRobot
+app.get('/', (req, res) => {
+    res.send('Sniper Duels API is running 24/7! (Go to /api/values for data)');
+});
+
 // Serve the values as JSON
 app.get('/api/values', (req, res) => {
     try {

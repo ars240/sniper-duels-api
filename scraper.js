@@ -12,62 +12,75 @@ async function scrapeValues() {
         });
         const page = await browser.newPage();
         
-        console.log('Navigating to piratevalue.com/value...');
-        await page.goto('https://piratevalue.com/value', { waitUntil: 'networkidle2' });
-        
-        console.log('Scrolling and extracting items...');
         const uniqueItems = new Map();
-        let previousHeight = 0;
+        let currentPage = 1;
+        let keepScraping = true;
         
-        while (true) {
-            // Extract visible items in current view
+        while (keepScraping) {
+            console.log(`Navigating to piratevalue.com/value?page=${currentPage}...`);
+            await page.goto(`https://piratevalue.com/value?page=${currentPage}`, { waitUntil: 'networkidle2' });
+            
+            // Try to wait for items, if it times out, we might have reached the end
+            try {
+                await page.waitForSelector('a[href^="/value/"]', { timeout: 5000 });
+            } catch (e) {
+                console.log(`No items found on page ${currentPage}, stopping pagination.`);
+                break;
+            }
+            
             const currentItems = await page.evaluate(() => {
                 const extracted = [];
                 const elements = document.querySelectorAll('a[href^="/value/"]');
+                
                 elements.forEach(el => {
                     const link = el.getAttribute('href');
                     let name = decodeURIComponent(link.replace('/value/', ''));
+                    
                     const nameEl = el.querySelector('span.max-w-\\[150px\\]');
                     if (nameEl) name = nameEl.innerText.trim();
                     
-                    const valSpans = Array.from(el.querySelectorAll('span')).filter(s => s.innerText.includes('💎'));
-                    let valueText = '0';
-                    if (valSpans.length > 0) {
-                        valueText = valSpans[0].innerText.replace('💎', '').trim();
-                    } else {
-                        const fallback = el.querySelector('.text-mono, .font-mono');
-                        if (fallback) valueText = fallback.innerText.replace('💎', '').trim();
+                    // Rarity extraction:
+                    let rarity = 'Unknown';
+                    const rarityLabel = Array.from(el.querySelectorAll('span')).find(s => s.innerText === 'Rarity:');
+                    if (rarityLabel && rarityLabel.nextElementSibling) {
+                        rarity = rarityLabel.nextElementSibling.innerText.trim();
                     }
-                    if (valueText !== '0' && name) {
-                        extracted.push({ name, value: valueText, rarity: 'Unknown' });
+
+                    // Value extraction:
+                    let valueText = '0';
+                    // We look for 'MC' paragraph
+                    const mcP = Array.from(el.querySelectorAll('p')).find(p => p.innerText.includes('MC'));
+                    if (mcP && mcP.nextElementSibling) {
+                        const valContainer = mcP.nextElementSibling;
+                        // The container has <span>💎</span> and <span>1.25m</span>
+                        const spans = valContainer.querySelectorAll('span');
+                        if (spans.length >= 2) {
+                            valueText = spans[1].innerText.trim();
+                        } else {
+                            valueText = valContainer.innerText.replace('💎', '').trim();
+                        }
+                    }
+                    
+                    if (name) {
+                        extracted.push({ name, value: valueText, rarity });
                     }
                 });
                 return extracted;
             });
             
-            // Add to Map to handle duplicates
-            currentItems.forEach(item => {
-                uniqueItems.set(item.name, item);
-            });
-            
-            // Scroll down
-            await page.evaluate('window.scrollBy(0, 1000)');
-            await new Promise(resolve => setTimeout(resolve, 800));
-            
-            let newHeight = await page.evaluate('document.documentElement.scrollTop + window.innerHeight');
-            let docHeight = await page.evaluate('document.documentElement.scrollHeight');
-            
-            if (newHeight >= docHeight || previousHeight === newHeight) {
-                // Wait a bit more to ensure it's really the bottom
-                await new Promise(resolve => setTimeout(resolve, 1500));
-                let finalCheckDocHeight = await page.evaluate('document.documentElement.scrollHeight');
-                if (docHeight === finalCheckDocHeight) break;
+            if (currentItems.length === 0) {
+                keepScraping = false;
+            } else {
+                currentItems.forEach(item => {
+                    uniqueItems.set(item.name, item);
+                });
+                console.log(`Scraped ${currentItems.length} items from page ${currentPage}. Total unique so far: ${uniqueItems.size}`);
+                currentPage++;
             }
-            previousHeight = newHeight;
         }
         
         const items = Array.from(uniqueItems.values());
-        console.log(`Successfully scraped ${items.length} items.`);
+        console.log(`Successfully scraped ${items.length} items in total.`);
         
         // Save to data.json
         fs.writeFileSync('data.json', JSON.stringify({

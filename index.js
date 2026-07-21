@@ -26,9 +26,18 @@ app.get('/api/values', (req, res) => {
 });
 
 // Start the server
-app.listen(PORT, () => {
+app.listen(PORT, async () => {
     console.log(`Server is running on http://localhost:${PORT}`);
     console.log(`API available at http://localhost:${PORT}/api/values`);
+    
+    // Run an initial scrape immediately so we don't wait 10 minutes
+    console.log('[INIT] Starting initial scrape...');
+    try {
+        await scrapeValues();
+        console.log('[INIT] Initial scrape finished.');
+    } catch (e) {
+        console.log('[INIT] Error during initial scrape:', e);
+    }
 });
 
 // Schedule scraper to run every 10 minutes
